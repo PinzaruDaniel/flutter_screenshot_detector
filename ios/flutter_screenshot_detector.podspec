@@ -9,7 +9,7 @@ Pod::Spec.new do |s|
   s.description      = <<-DESC
 Detects when the user takes a screenshot in Flutter apps on Android and iOS.
                        DESC
-  s.homepage         = 'https://github.com/danielpinzaru/flutter_screenshot_detector'
+  s.homepage         = 'https://github.com/PinzaruDaniel/flutter_screenshot_detector'
   s.license          = { :file => '../LICENSE' }
   s.author           = { 'Daniel Pinzaru' => 'daniel.pinzaru@example.com' }
   s.source           = { :path => '.' }
