@@ -1,5 +1,6 @@
 package com.danielpinzaru.flutter_screenshot_detector
 
+import android.app.Activity
 import android.content.ContentResolver
 import android.database.ContentObserver
 import android.net.Uri
@@ -8,18 +9,24 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.MediaStore
 import io.flutter.embedding.engine.plugins.FlutterPlugin
+import io.flutter.embedding.engine.plugins.activity.ActivityAware
+import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
 import io.flutter.plugin.common.EventChannel
 
 /** FlutterScreenshotDetectorPlugin */
 class FlutterScreenshotDetectorPlugin :
     FlutterPlugin,
-    EventChannel.StreamHandler {
+    EventChannel.StreamHandler,
+    ActivityAware {
     private var eventChannel: EventChannel? = null
     private var eventSink: EventChannel.EventSink? = null
+    private var activity: Activity? = null
     private var contentResolver: ContentResolver? = null
     private var observer: ContentObserver? = null
+    private var screenCaptureCallback: Activity.ScreenCaptureCallback? = null
     private val mainHandler = Handler(Looper.getMainLooper())
     private var lastSeenImageTimestamp = 0L
+    private var isListening = false
 
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
         contentResolver = flutterPluginBinding.applicationContext.contentResolver
@@ -29,19 +36,77 @@ class FlutterScreenshotDetectorPlugin :
 
     override fun onListen(arguments: Any?, events: EventChannel.EventSink?) {
         eventSink = events
-        registerObserver()
+        isListening = true
+        startDetection()
     }
 
     override fun onCancel(arguments: Any?) {
-        unregisterObserver()
+        isListening = false
+        stopDetection()
         eventSink = null
     }
 
     override fun onDetachedFromEngine(binding: FlutterPlugin.FlutterPluginBinding) {
-        unregisterObserver()
+        stopDetection()
         eventChannel?.setStreamHandler(null)
         eventChannel = null
         contentResolver = null
+    }
+
+    override fun onAttachedToActivity(binding: ActivityPluginBinding) {
+        activity = binding.activity
+
+        if (isListening) {
+            startDetection()
+        }
+    }
+
+    override fun onDetachedFromActivityForConfigChanges() {
+        stopDetection()
+        activity = null
+    }
+
+    override fun onReattachedToActivityForConfigChanges(binding: ActivityPluginBinding) {
+        onAttachedToActivity(binding)
+    }
+
+    override fun onDetachedFromActivity() {
+        stopDetection()
+        activity = null
+    }
+
+    private fun startDetection() {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
+            registerScreenCaptureCallback()
+        } else {
+            registerObserver()
+        }
+    }
+
+    private fun stopDetection() {
+        unregisterScreenCaptureCallback()
+        unregisterObserver()
+    }
+
+    private fun registerScreenCaptureCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+        if (screenCaptureCallback != null) return
+
+        val currentActivity = activity ?: return
+        val callback = Activity.ScreenCaptureCallback {
+            emitScreenshotEvent("android")
+        }
+
+        currentActivity.registerScreenCaptureCallback(currentActivity.mainExecutor, callback)
+        screenCaptureCallback = callback
+    }
+
+    private fun unregisterScreenCaptureCallback() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.UPSIDE_DOWN_CAKE) return
+
+        val callback = screenCaptureCallback ?: return
+        activity?.unregisterScreenCaptureCallback(callback)
+        screenCaptureCallback = null
     }
 
     private fun registerObserver() {
@@ -117,12 +182,7 @@ class FlutterScreenshotDetectorPlugin :
                     return
                 }
 
-                eventSink?.success(
-                    mapOf(
-                        "platform" to "android",
-                        "timestamp" to System.currentTimeMillis()
-                    )
-                )
+                emitScreenshotEvent("android")
             }
         } catch (_: SecurityException) {
             eventSink?.error(
@@ -163,5 +223,14 @@ class FlutterScreenshotDetectorPlugin :
         return value.contains("screenshot") ||
             value.contains("screen_shot") ||
             value.contains("screenshots")
+    }
+
+    private fun emitScreenshotEvent(platform: String) {
+        eventSink?.success(
+            mapOf(
+                "platform" to platform,
+                "timestamp" to System.currentTimeMillis()
+            )
+        )
     }
 }
