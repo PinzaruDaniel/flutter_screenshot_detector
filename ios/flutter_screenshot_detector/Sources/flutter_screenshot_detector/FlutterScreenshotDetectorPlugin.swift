@@ -3,6 +3,8 @@ import UIKit
 
 public class FlutterScreenshotDetectorPlugin: NSObject, FlutterPlugin, FlutterStreamHandler {
   private var eventSink: FlutterEventSink?
+  private var lastScreenshotTimestamp = 0
+  private let duplicateEventWindowMilliseconds = 1000
 
   public static func register(with registrar: FlutterPluginRegistrar) {
     let instance = FlutterScreenshotDetectorPlugin()
@@ -34,13 +36,22 @@ public class FlutterScreenshotDetectorPlugin: NSObject, FlutterPlugin, FlutterSt
       object: nil
     )
     eventSink = nil
+    lastScreenshotTimestamp = 0
     return nil
   }
 
   @objc private func userDidTakeScreenshot() {
+    let timestamp = Int(Date().timeIntervalSince1970 * 1000)
+
+    if timestamp - lastScreenshotTimestamp < duplicateEventWindowMilliseconds {
+      return
+    }
+
+    lastScreenshotTimestamp = timestamp
+
     eventSink?([
       "platform": "ios",
-      "timestamp": Int(Date().timeIntervalSince1970 * 1000)
+      "timestamp": timestamp
     ])
   }
 }

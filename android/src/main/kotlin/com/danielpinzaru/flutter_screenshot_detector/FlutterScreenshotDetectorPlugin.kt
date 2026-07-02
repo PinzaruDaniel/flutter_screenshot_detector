@@ -1,13 +1,8 @@
 package com.danielpinzaru.flutter_screenshot_detector
 
 import android.app.Activity
-import android.content.ContentResolver
-import android.database.ContentObserver
-import android.net.Uri
 import android.os.Build
-import android.os.Handler
-import android.os.Looper
-import android.provider.MediaStore
+import android.view.ViewTreeObserver
 import io.flutter.embedding.engine.plugins.FlutterPlugin
 import io.flutter.embedding.engine.plugins.activity.ActivityAware
 import io.flutter.embedding.engine.plugins.activity.ActivityPluginBinding
@@ -21,15 +16,18 @@ class FlutterScreenshotDetectorPlugin :
     private var eventChannel: EventChannel? = null
     private var eventSink: EventChannel.EventSink? = null
     private var activity: Activity? = null
-    private var contentResolver: ContentResolver? = null
-    private var observer: ContentObserver? = null
     private var screenCaptureCallback: Activity.ScreenCaptureCallback? = null
-    private val mainHandler = Handler(Looper.getMainLooper())
-    private var lastSeenImageTimestamp = 0L
+    private var focusChangeListener: ViewTreeObserver.OnWindowFocusChangeListener? = null
+    private var focusLossTimestamp = 0L
+    private var lastEmittedTimestamp = 0L
     private var isListening = false
 
+    private companion object {
+        const val FOCUS_RETURN_WINDOW_MILLIS = 1500L
+        const val DUPLICATE_EVENT_WINDOW_MILLIS = 1000L
+    }
+
     override fun onAttachedToEngine(flutterPluginBinding: FlutterPlugin.FlutterPluginBinding) {
-        contentResolver = flutterPluginBinding.applicationContext.contentResolver
         eventChannel = EventChannel(flutterPluginBinding.binaryMessenger, "flutter_screenshot_detector/events")
         eventChannel?.setStreamHandler(this)
     }
@@ -50,7 +48,6 @@ class FlutterScreenshotDetectorPlugin :
         stopDetection()
         eventChannel?.setStreamHandler(null)
         eventChannel = null
-        contentResolver = null
     }
 
     override fun onAttachedToActivity(binding: ActivityPluginBinding) {
@@ -79,13 +76,14 @@ class FlutterScreenshotDetectorPlugin :
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.UPSIDE_DOWN_CAKE) {
             registerScreenCaptureCallback()
         } else {
-            registerObserver()
+            registerFocusChangeListener()
         }
     }
 
     private fun stopDetection() {
         unregisterScreenCaptureCallback()
-        unregisterObserver()
+        unregisterFocusChangeListener()
+        focusLossTimestamp = 0L
     }
 
     private fun registerScreenCaptureCallback() {
@@ -109,120 +107,50 @@ class FlutterScreenshotDetectorPlugin :
         screenCaptureCallback = null
     }
 
-    private fun registerObserver() {
-        if (observer != null) return
+    private fun registerFocusChangeListener() {
+        if (focusChangeListener != null) return
 
-        val resolver = contentResolver ?: return
-        lastSeenImageTimestamp = latestImageTimestamp() ?: 0L
-        observer = object : ContentObserver(mainHandler) {
-            override fun onChange(selfChange: Boolean, uri: Uri?) {
-                super.onChange(selfChange, uri)
-                detectLatestScreenshot()
-            }
+        val decorView = activity?.window?.decorView ?: return
+        val listener = ViewTreeObserver.OnWindowFocusChangeListener { hasFocus ->
+            handleWindowFocusChange(hasFocus)
         }
 
-        resolver.registerContentObserver(
-            MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-            true,
-            observer as ContentObserver
-        )
+        decorView.viewTreeObserver.addOnWindowFocusChangeListener(listener)
+        focusChangeListener = listener
     }
 
-    private fun unregisterObserver() {
-        val resolver = contentResolver
-        val currentObserver = observer
+    private fun unregisterFocusChangeListener() {
+        val decorView = activity?.window?.decorView
+        val listener = focusChangeListener
 
-        if (resolver != null && currentObserver != null) {
-            resolver.unregisterContentObserver(currentObserver)
+        if (decorView != null && listener != null && decorView.viewTreeObserver.isAlive) {
+            decorView.viewTreeObserver.removeOnWindowFocusChangeListener(listener)
         }
 
-        observer = null
+        focusChangeListener = null
     }
 
-    private fun detectLatestScreenshot() {
-        val resolver = contentResolver ?: return
-        val dateAddedColumn = MediaStore.Images.Media.DATE_ADDED
-        val displayNameColumn = MediaStore.Images.Media.DISPLAY_NAME
-        val projection = mutableListOf(dateAddedColumn, displayNameColumn)
+    private fun handleWindowFocusChange(hasFocus: Boolean) {
+        val now = System.currentTimeMillis()
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-            projection.add(MediaStore.Images.Media.RELATIVE_PATH)
-        } else {
-            @Suppress("DEPRECATION")
-            projection.add(MediaStore.Images.Media.DATA)
+        if (!hasFocus) {
+            focusLossTimestamp = now
+            return
         }
 
-        try {
-            resolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                projection.toTypedArray(),
-                null,
-                null,
-                "$dateAddedColumn DESC"
-            )?.use { cursor ->
-                if (!cursor.moveToFirst()) return
-
-                val timestamp = cursor.getLong(cursor.getColumnIndexOrThrow(dateAddedColumn)) * 1000
-                val displayName = cursor.getString(cursor.getColumnIndexOrThrow(displayNameColumn))
-                val pathColumn = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
-                    MediaStore.Images.Media.RELATIVE_PATH
-                } else {
-                    @Suppress("DEPRECATION")
-                    MediaStore.Images.Media.DATA
-                }
-                val path = cursor.getString(cursor.getColumnIndexOrThrow(pathColumn))
-
-                if (timestamp <= lastSeenImageTimestamp) {
-                    return
-                }
-
-                lastSeenImageTimestamp = timestamp
-
-                if (!looksLikeScreenshot(displayName, path)) {
-                    return
-                }
-
-                emitScreenshotEvent("android")
-            }
-        } catch (_: SecurityException) {
-            eventSink?.error(
-                "missing_permission",
-                "Android screenshot detection requires media/image read permission.",
-                null
-            )
-        } catch (_: Exception) {
-            // Ignore unrelated MediaStore changes that cannot be inspected.
+        if (focusLossTimestamp == 0L) {
+            return
         }
-    }
 
-    private fun latestImageTimestamp(): Long? {
-        val resolver = contentResolver ?: return null
-        val dateAddedColumn = MediaStore.Images.Media.DATE_ADDED
+        val focusReturnedQuickly = now - focusLossTimestamp <= FOCUS_RETURN_WINDOW_MILLIS
+        val notDuplicate = now - lastEmittedTimestamp >= DUPLICATE_EVENT_WINDOW_MILLIS
 
-        return try {
-            resolver.query(
-                MediaStore.Images.Media.EXTERNAL_CONTENT_URI,
-                arrayOf(dateAddedColumn),
-                null,
-                null,
-                "$dateAddedColumn DESC"
-            )?.use { cursor ->
-                if (cursor.moveToFirst()) {
-                    cursor.getLong(cursor.getColumnIndexOrThrow(dateAddedColumn)) * 1000
-                } else {
-                    null
-                }
-            }
-        } catch (_: Exception) {
-            null
+        focusLossTimestamp = 0L
+
+        if (focusReturnedQuickly && notDuplicate) {
+            lastEmittedTimestamp = now
+            emitScreenshotEvent("android")
         }
-    }
-
-    private fun looksLikeScreenshot(displayName: String?, path: String?): Boolean {
-        val value = "${displayName.orEmpty()} ${path.orEmpty()}".lowercase()
-        return value.contains("screenshot") ||
-            value.contains("screen_shot") ||
-            value.contains("screenshots")
     }
 
     private fun emitScreenshotEvent(platform: String) {
