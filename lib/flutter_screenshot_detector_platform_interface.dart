@@ -1,6 +1,7 @@
 import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 
 import 'flutter_screenshot_detector_method_channel.dart';
+import 'src/android_legacy_mode.dart';
 import 'src/screenshot_event.dart';
 
 abstract class FlutterScreenshotDetectorPlatform extends PlatformInterface {
@@ -27,5 +28,11 @@ abstract class FlutterScreenshotDetectorPlatform extends PlatformInterface {
 
   Stream<ScreenshotEvent> get onScreenshot {
     throw UnimplementedError('onScreenshot has not been implemented.');
+  }
+
+  Future<void> configure({
+    AndroidLegacyMode androidLegacyMode = AndroidLegacyMode.focusHeuristic,
+  }) {
+    throw UnimplementedError('configure has not been implemented.');
   }
 }

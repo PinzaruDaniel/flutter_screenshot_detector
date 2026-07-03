@@ -4,7 +4,7 @@
 #
 Pod::Spec.new do |s|
   s.name             = 'flutter_screenshot_detector'
-  s.version          = '0.0.3'
+  s.version          = '0.0.4'
   s.summary          = 'Detects user screenshots in Flutter apps.'
   s.description      = <<-DESC
 Detects when the user takes a screenshot in Flutter apps on Android and iOS.

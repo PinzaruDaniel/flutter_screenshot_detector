@@ -7,6 +7,8 @@ import 'package:plugin_platform_interface/plugin_platform_interface.dart';
 class MockFlutterScreenshotDetectorPlatform
     with MockPlatformInterfaceMixin
     implements FlutterScreenshotDetectorPlatform {
+  AndroidLegacyMode? androidLegacyMode;
+
   @override
   Stream<ScreenshotEvent> get onScreenshot => Stream.value(
     ScreenshotEvent(
@@ -14,6 +16,13 @@ class MockFlutterScreenshotDetectorPlatform
       platform: 'test',
     ),
   );
+
+  @override
+  Future<void> configure({
+    AndroidLegacyMode androidLegacyMode = AndroidLegacyMode.focusHeuristic,
+  }) async {
+    this.androidLegacyMode = androidLegacyMode;
+  }
 }
 
 void main() {
@@ -36,5 +45,17 @@ void main() {
 
     expect(event.platform, 'test');
     expect(event.timestamp, DateTime.fromMillisecondsSinceEpoch(42));
+  });
+
+  test('configure', () async {
+    const flutterScreenshotDetectorPlugin = FlutterScreenshotDetector();
+    final fakePlatform = MockFlutterScreenshotDetectorPlatform();
+    FlutterScreenshotDetectorPlatform.instance = fakePlatform;
+
+    await flutterScreenshotDetectorPlugin.configure(
+      androidLegacyMode: AndroidLegacyMode.mediaStore,
+    );
+
+    expect(fakePlatform.androidLegacyMode, AndroidLegacyMode.mediaStore);
   });
 }

@@ -1,3 +1,9 @@
+## 0.0.4
+
+* Add configurable Android 13 and older fallback modes:
+  `focusHeuristic` and `mediaStore`.
+* Add delayed `false -> true` focus confirmation for `focusHeuristic` mode.
+
 ## 0.0.3
 
 * Replace Android 13 and older `MediaStore` fallback with permissionless

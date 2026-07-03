@@ -29,6 +29,7 @@ class _MyAppState extends State<MyApp> {
       setState(() {
         _screenshotCount++;
         _lastScreenshot = event;
+
       });
     });
   }

@@ -1,6 +1,6 @@
 name: flutter_screenshot_detector
 description: A Flutter plugin that emits an event when the user takes a screenshot on Android or iOS.
-version: 0.0.3
+version: 0.0.4
 homepage: https://github.com/PinzaruDaniel/flutter_screenshot_detector
 repository: https://github.com/PinzaruDaniel/flutter_screenshot_detector
 issue_tracker: https://github.com/PinzaruDaniel/flutter_screenshot_detector/issues

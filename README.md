@@ -5,7 +5,7 @@ A Flutter plugin that emits an event when the user takes a screenshot of your ap
 ## Features
 
 - Android 14+ screenshot detection through the platform screen-capture callback.
-- Android 13 and older fallback through window focus-change detection.
+- Android 13 and older configurable fallback modes.
 - iOS screenshot detection through `UIApplication.userDidTakeScreenshotNotification`.
 - Simple Dart stream API.
 - Built with Flutter 3.44 and Dart 3.12 compatibility.
@@ -29,6 +29,30 @@ void startListening() {
 Future<void> stopListening() => subscription.cancel();
 ```
 
+### Android 13 and Older Mode
+
+Android 14 and newer always use the native screen-capture callback. On Android
+13 and older, choose one of two fallback modes before listening:
+
+```dart
+await FlutterScreenshotDetector.instance.configure(
+  androidLegacyMode: AndroidLegacyMode.focusHeuristic,
+);
+```
+
+`focusHeuristic` is the default. It does not require media permission, but it
+can report false positives when system UI briefly steals focus. It waits for a
+quick `false -> true` focus cycle, then emits after a short delay.
+
+```dart
+await FlutterScreenshotDetector.instance.configure(
+  androidLegacyMode: AndroidLegacyMode.mediaStore,
+);
+```
+
+`mediaStore` is more accurate, but your host app must declare and request media
+or storage read permission.
+
 ## Android setup
 
 The plugin declares the required Android permissions in its manifest:
@@ -37,10 +61,17 @@ The plugin declares the required Android permissions in its manifest:
 <uses-permission android:name="android.permission.DETECT_SCREEN_CAPTURE" />
 ```
 
-No media runtime permission is required. On Android 14 and newer, the plugin
-uses `Activity.registerScreenCaptureCallback`. On Android 13 and older, Android
-does not provide a direct screenshot callback for third-party apps, so the plugin
-uses a focus-change heuristic.
+If you use `AndroidLegacyMode.mediaStore`, add the relevant permissions to your
+app manifest and request them at runtime:
+
+```xml
+<uses-permission
+  android:name="android.permission.READ_EXTERNAL_STORAGE"
+  android:maxSdkVersion="32" />
+<uses-permission
+  android:name="android.permission.READ_MEDIA_IMAGES"
+  android:maxSdkVersion="33" />
+```
 
 ## iOS setup
 
@@ -51,5 +82,7 @@ system posts `UIApplication.userDidTakeScreenshotNotification`.
 
 - Detection happens after the screenshot is taken.
 - iOS does not expose the screenshot file path.
-- Android 13 and older detection is heuristic. It can miss screenshots on some
+- Android 13 and older `focusHeuristic` mode can miss screenshots on some
   devices and may report false positives for other quick system focus changes.
+- Android 13 and older `mediaStore` mode depends on media access permission and
+  device screenshot naming conventions.
